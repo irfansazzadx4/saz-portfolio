@@ -9,6 +9,14 @@ const nextConfig: NextConfig = {
       { protocol: 'https', hostname: '**' },
     ],
   },
+  async rewrites() {
+    return [
+      {
+        source: '/arthur',
+        destination: '/',
+      },
+    ];
+  },
 };
 
 export default nextConfig;

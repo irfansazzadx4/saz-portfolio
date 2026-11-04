@@ -615,6 +615,10 @@ export default function App() {
 
   useEffect(() => {
     setIsMounted(true);
+    // Secret URL /arthur detect kore admin mode e niye jabe
+    if (typeof window !== 'undefined' && window.location.pathname === '/arthur') {
+      setActivePage('admin');
+    }
   }, []);
   // Theme State ('light' = Warm Alabaster Editorial, 'dark' = Obsidian Velvet)
   const [theme, setTheme] = useState('light');
@@ -725,9 +729,8 @@ export default function App() {
   // Admin Auth & Dashboard State
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState(false);
   const [adminTab, setAdminTab] = useState('overview'); // 'overview' | 'albums' | 'photos' | 'profile' | 'inquiries' | 'blueprint'
-  const [loginEmail, setLoginEmail] = useState('mdsazzadsarker4@gmail.com');
-  const [loginPassword, setLoginPassword] = useState('••••••••••••');
-
+  const [loginEmail, setLoginEmail] = useState('');
+  const [loginPassword, setLoginPassword] = useState('');
   // Confirmation Modal State (No window.confirm allowed)
   const [confirmDialog, setConfirmDialog] = useState(null);
 
@@ -978,7 +981,7 @@ if (!isMounted) {
             })}
           </nav>
 
-          {/* Right Actions: Theme Toggle & /admin Portal Button */}
+          {/* Right Actions: Only Theme Toggle */}
           <div className="flex items-center gap-2.5">
             <button
               onClick={() => setTheme(isDark ? 'light' : 'dark')}
@@ -990,34 +993,6 @@ if (!isMounted) {
               }`}
             >
               {isDark ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4" />}
-            </button>
-
-            <button
-              onClick={() =>
-                navigateTo(activePage === 'admin' ? 'home' : 'admin')
-              }
-              className={`flex items-center gap-2 px-4 py-2.5 rounded-full text-xs sm:text-sm font-medium border transition-all ${
-                activePage === 'admin'
-                  ? 'bg-[#C5A880] text-[#0F0E0C] border-[#C5A880] shadow-md'
-                  : isDark
-                  ? 'border-[#C5A880]/40 bg-[#181614] text-[#F5F2EB] hover:border-[#C5A880]'
-                  : 'border-[#D6C7B2] bg-[#F3EFEA] text-[#18181B] hover:border-[#18181B]'
-              }`}
-            >
-              {activePage === 'admin' ? (
-                <>
-                  <Eye className="w-4 h-4" />
-                  <span>View Live Site</span>
-                </>
-              ) : (
-                <>
-                  <LayoutDashboard className="w-4 h-4 text-[#C5A880]" />
-                  <span>/admin CMS</span>
-                  {inquiries.some((i) => !i.read) && (
-                    <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
-                  )}
-                </>
-              )}
             </button>
           </div>
         </div>
@@ -1176,7 +1151,8 @@ if (!isMounted) {
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-10 py-16">
           <div className="grid grid-cols-1 md:grid-cols-12 gap-10 pb-12 border-b border-current/10">
-            <div className="md:col-span-5 space-y-4">
+            {/* Left Column: Brand & Bio */}
+            <div className="md:col-span-7 space-y-4">
               <div className="flex items-center gap-3">
                 <img
                   src={profile.profilePhoto}
@@ -1201,7 +1177,8 @@ if (!isMounted) {
               </p>
             </div>
 
-            <div className="md:col-span-3 space-y-3">
+            {/* Right Column: Public Navigation Links */}
+            <div className="md:col-span-5 space-y-3">
               <p
                 className={`font-mono-meta text-xs uppercase tracking-[0.2em] ${
                   isDark ? 'text-[#F5F2EB]' : 'text-[#18181B]'
@@ -1244,49 +1221,13 @@ if (!isMounted) {
                 </li>
               </ul>
             </div>
-
-            <div className="md:col-span-4 space-y-3">
-              <p
-                className={`font-mono-meta text-xs uppercase tracking-[0.2em] ${
-                  isDark ? 'text-[#F5F2EB]' : 'text-[#18181B]'
-                }`}
-              >
-                Admin & Architecture
-              </p>
-              <p className="text-xs leading-relaxed">
-                Manage profile portraits, curate albums, or upload new frames dynamically via the private dashboard.
-              </p>
-              <div className="pt-2 flex flex-wrap gap-2">
-                <button
-                  onClick={() => navigateTo('admin')}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-full text-xs font-medium bg-[#C5A880] text-[#0F0E0C] hover:opacity-90 transition"
-                >
-                  <Lock className="w-3.5 h-3.5" />
-                  <span>Open Admin Dashboard (/admin)</span>
-                </button>
-                <button
-                  onClick={() => {
-                    setIsAdminAuthenticated(true);
-                    setAdminTab('blueprint');
-                    navigateTo('admin');
-                  }}
-                  className={`inline-flex items-center gap-1.5 px-3.5 py-2 rounded-full text-xs border transition ${
-                    isDark
-                      ? 'border-[#2A2622] text-[#F5F2EB] hover:border-[#C5A880]'
-                      : 'border-[#D6C7B2] text-[#18181B] hover:border-[#18181B]'
-                  }`}
-                >
-                  <Code2 className="w-3.5 h-3.5 text-[#C5A880]" />
-                  <span>Supabase & Next.js Schema</span>
-                </button>
-              </div>
-            </div>
           </div>
 
+          {/* Copyright & Socials */}
           <div className="pt-8 flex flex-col sm:flex-row items-center justify-between gap-4 text-xs">
             <p>
-  © 2026 {profile.name}. All rights reserved. Curated Personal Visual Portfolio.
-</p>
+              © 2026 {profile.name}. All rights reserved. Curated Personal Visual Portfolio.
+            </p>
             <div className="flex items-center gap-5">
               <a
                 href={profile.socials.instagram}
@@ -2138,13 +2079,7 @@ function AlbumDetailView({
               <span>Open Fullscreen Lightbox ({filteredPhotos.length} Photos)</span>
             </button>
 
-            <button
-              onClick={onJumpToAdminUpload}
-              className="inline-flex items-center gap-2 px-4 py-3 rounded-full text-xs font-mono-meta uppercase tracking-wider border border-[#C5A880]/50 hover:bg-[#C5A880]/15 transition"
-            >
-              <Upload className="w-3.5 h-3.5 text-[#C5A880]" />
-              <span>Add Photos via /admin</span>
-            </button>
+        
           </div>
         </div>
       </div>
@@ -2953,7 +2888,35 @@ function AdminPortalView({
     showToast('Photo order updated dynamically.');
   };
 
-  // If NOT authenticated, render Admin Login Screen
+  // --- ADMIN LOGIN SCREEN (VALIDATION & ERROR HANDLING) ---
+  const [loginError, setLoginError] = useState('');
+
+  // পেইজ লোড হলে ইনপুট ফিল্ড দুটি খালি রাখবে
+  useEffect(() => {
+    setLoginEmail('');
+    setLoginPassword('');
+  }, []);
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+
+    // আপনার কাঙ্ক্ষিত ইমেইল ও গোপন পাসওয়ার্ড এখানে সেট করুন:
+    const VALID_EMAIL = 'mdsazzadsarker4@gmail.com';
+    const VALID_PASSWORD = 'arthurx4'; // <-- এখানে আপনার গোপন পাসওয়ার্ড লিখুন
+
+    if (
+      loginEmail.trim().toLowerCase() === VALID_EMAIL.toLowerCase() &&
+      loginPassword === VALID_PASSWORD
+    ) {
+      setIsAuthenticated(true);
+      setLoginError('');
+      showToast('Welcome back, Admin!');
+    } else {
+      setLoginError('Invalid email or password. Access denied.');
+      showToast('Wrong credentials! Access denied.', 'error');
+    }
+  };
+
   if (!isAuthenticated) {
     return (
       <div className="max-w-md mx-auto px-4 py-20 animate-fade-up">
@@ -2967,60 +2930,46 @@ function AdminPortalView({
           <div className="flex items-center justify-between">
             <span className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-mono-meta uppercase tracking-widest bg-[#C5A880]/15 text-[#C5A880]">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Supabase Auth · /admin</span>
+              <span>Admin Authentication</span>
             </span>
             <Lock className="w-4 h-4 text-[#C5A880]" />
           </div>
 
           <div>
             <h1 className="font-serif-editorial text-4xl font-normal">
-              Admin Portal Sign In
+              Admin Portal
             </h1>
             <p className="text-xs opacity-75 mt-1">
-              Protected route for managing {profile.name}’s profile, albums, and Cloudinary photo uploads.
+              Enter your credentials to access the management dashboard.
             </p>
           </div>
 
-          {/* 1-Click Instant Demo Login Button */}
-          <button
-            onClick={() => {
-              setIsAuthenticated(true);
-              showToast('Authenticated as Administrator (Supabase RLS Session Active).');
-            }}
-            className="w-full py-3.5 px-5 rounded-full text-xs sm:text-sm font-semibold bg-[#C5A880] text-[#0F0E0C] hover:opacity-95 transition flex items-center justify-center gap-2 shadow-md"
-          >
-            <Unlock className="w-4 h-4" />
-            <span>Instant 1-Click Demo Admin Access</span>
-          </button>
+          {/* ভুল তথ্য দিলে লাল বক্সের এরর মেসেজ */}
+          {loginError && (
+            <div className="p-3.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-500 flex items-center gap-2.5 text-xs animate-fade-up">
+              <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <span>{loginError}</span>
+            </div>
+          )}
 
-          <div className="relative flex py-1 items-center">
-            <div className="flex-grow border-t border-current/10" />
-            <span className="flex-shrink mx-3 font-mono-meta text-[10px] uppercase opacity-50">
-              Or Credentials
-            </span>
-            <div className="flex-grow border-t border-current/10" />
-          </div>
-
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              setIsAuthenticated(true);
-              showToast('Signed in to Admin CMS.');
-            }}
-            className="space-y-4"
-          >
+          <form onSubmit={handleAdminLogin} className="space-y-4">
             <div>
               <label className="block font-mono-meta text-[11px] uppercase tracking-wider mb-1.5 opacity-75">
                 Admin Email
               </label>
               <input
                 type="email"
+                required
                 value={loginEmail}
-                onChange={(e) => setLoginEmail(e.target.value)}
-                className={`w-full px-4 py-2.5 rounded-xl text-xs border ${
+                onChange={(e) => {
+                  setLoginEmail(e.target.value);
+                  setLoginError('');
+                }}
+                placeholder="name@example.com"
+                className={`w-full px-4 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-[#C5A880] ${
                   isDark
-                    ? 'bg-[#0F0E0C] border-[#2A2622]'
-                    : 'bg-[#FAF8F5] border-[#D6C7B2]'
+                    ? 'bg-[#0F0E0C] border-[#2A2622] text-[#F5F2EB]'
+                    : 'bg-[#FAF8F5] border-[#D6C7B2] text-[#18181B]'
                 }`}
               />
             </div>
@@ -3030,24 +2979,25 @@ function AdminPortalView({
               </label>
               <input
                 type="password"
+                required
                 value={loginPassword}
-                onChange={(e) => setLoginPassword(e.target.value)}
-                className={`w-full px-4 py-2.5 rounded-xl text-xs border ${
+                onChange={(e) => {
+                  setLoginPassword(e.target.value);
+                  setLoginError('');
+                }}
+                placeholder="Enter admin password"
+                className={`w-full px-4 py-2.5 rounded-xl text-xs border focus:outline-none focus:border-[#C5A880] ${
                   isDark
-                    ? 'bg-[#0F0E0C] border-[#2A2622]'
-                    : 'bg-[#FAF8F5] border-[#D6C7B2]'
+                    ? 'bg-[#0F0E0C] border-[#2A2622] text-[#F5F2EB]'
+                    : 'bg-[#FAF8F5] border-[#D6C7B2] text-[#18181B]'
                 }`}
               />
             </div>
             <button
               type="submit"
-              className={`w-full py-3 rounded-full text-xs font-mono-meta uppercase tracking-wider border transition ${
-                isDark
-                  ? 'border-[#2A2622] hover:border-[#C5A880]'
-                  : 'border-[#18181B] bg-[#18181B] text-white'
-              }`}
+              className="w-full py-3.5 rounded-full text-xs font-semibold uppercase tracking-wider bg-[#C5A880] text-[#0F0E0C] hover:opacity-95 transition"
             >
-              Sign In with Email
+              Sign In to Dashboard
             </button>
           </form>
         </div>
