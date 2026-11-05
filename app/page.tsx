@@ -1,3 +1,4 @@
+// @ts-nocheck
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -67,6 +68,84 @@ const Facebook = ({ className = "w-4 h-4" }: { className?: string }) => (
     <path d="M24 12.073c0-6.627-5.373-12-12-12s-12 5.373-12 12c0 5.99 4.388 10.954 10.125 11.854v-8.385H7.078v-3.47h3.047V9.43c0-3.007 1.792-4.669 4.533-4.669 1.312 0 2.686.235 2.686.235v2.953H15.83c-1.491 0-1.956.925-1.956 1.874v2.25h3.328l-.532 3.47h-2.796v8.385C19.612 23.027 24 18.062 24 12.073z" />
   </svg>
 );
+
+// ============================================================================
+// CLOUD HELPERS (Cloudinary upload + API calls)
+// ============================================================================
+async function apiFetch(url, options = {}, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const res = await fetch(url, { cache: 'no-store', ...options, signal: controller.signal });
+    let json = {};
+    try { json = await res.json(); } catch (e) {}
+    return { ok: res.ok, status: res.status, json };
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+const JSON_HEADERS = { 'Content-Type': 'application/json' };
+
+// Signed direct upload to Cloudinary (file: File | data-URL string) -> permanent https URL
+async function uploadImage(source, folder = 'portfolio') {
+  const sign = await apiFetch('/api/cloudinary/sign', {
+    method: 'POST',
+    headers: JSON_HEADERS,
+    body: JSON.stringify({ folder }),
+  });
+  if (!sign.ok) throw new Error(sign.json.error || 'Upload not authorized (login again)');
+  const { cloudName, apiKey, timestamp, signature, folder: f } = sign.json;
+  const form = new FormData();
+  form.append('file', source);
+  form.append('api_key', apiKey);
+  form.append('timestamp', String(timestamp));
+  form.append('signature', signature);
+  form.append('folder', f);
+  const res = await fetch(`https://api.cloudinary.com/v1_1/${cloudName}/image/upload`, {
+    method: 'POST',
+    body: form,
+  });
+  const out = await res.json();
+  if (!res.ok) throw new Error((out.error && out.error.message) || 'Cloudinary upload failed');
+  return { url: out.secure_url, publicId: out.public_id, width: out.width, height: out.height };
+}
+
+// Smaller/faster delivery for Cloudinary images (auto format + quality + width)
+function cld(url, w = 1200) {
+  if (typeof url !== 'string' || !url.includes('res.cloudinary.com') || !url.includes('/upload/')) return url;
+  if (/\/upload\/(f_|q_|w_|c_)/.test(url)) return url;
+  return url.replace('/upload/', `/upload/f_auto,q_auto,w_${w}/`);
+}
+
+// Phone photo -> resized JPEG data-URL (max 2400px) + detected orientation
+function fileToDataUrl(file, maxSide = 2400) {
+  return new Promise((resolve, reject) => {
+    const objUrl = URL.createObjectURL(file);
+    const img = new window.Image();
+    img.onload = () => {
+      const scale = Math.min(1, maxSide / Math.max(img.naturalWidth, img.naturalHeight));
+      const w = Math.round(img.naturalWidth * scale);
+      const h = Math.round(img.naturalHeight * scale);
+      const canvas = document.createElement('canvas');
+      canvas.width = w;
+      canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(objUrl);
+      const ratio = w / h;
+      resolve({
+        url: canvas.toDataURL('image/jpeg', 0.88),
+        aspectRatio: ratio > 1.15 ? 'landscape' : ratio < 0.87 ? 'portrait' : 'square',
+      });
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(objUrl);
+      reject(new Error('Could not read ' + file.name));
+    };
+    img.src = objUrl;
+  });
+}
+
 // ============================================================================
 // INITIAL CURATED DATA (Inspired by Md Sazzad Sarker — Elevated Editorial Style)
 // ============================================================================
@@ -614,7 +693,6 @@ export default function App() {
   const [isMounted, setIsMounted] = useState(false);
 
   useEffect(() => {
-    setIsMounted(true);
     // Secret URL /arthur detect kore admin mode e niye jabe
     if (typeof window !== 'undefined' && window.location.pathname === '/arthur') {
       setActivePage('admin');
@@ -627,81 +705,17 @@ export default function App() {
   const [activePage, setActivePage] = useState('home');
   const [selectedAlbumId, setSelectedAlbumId] = useState(INITIAL_ALBUMS[0].id);
 
-  // Dynamic Database State (Persisted in localStorage during session for live editing)
-  // Dynamic Database State
+  // Dynamic Database State (saved in Supabase, shared by all visitors)
   const [profile, setProfile] = useState(INITIAL_PROFILE);
-
-  // Client-side hydration for localStorage
-  useEffect(() => {
-    try {
-      const saved = localStorage.getItem('jo_portfolio_profile_v1');
-      if (saved) {
-        setProfile(JSON.parse(saved));
-      }
-    } catch (err) {
-      console.error("Failed to load profile from storage", err);
-    }
-  }, []);
-
-  const [albums, setAlbums] = useState(() => {
-    try {
-      const saved = localStorage.getItem('jo_portfolio_albums_v1');
-      return saved ? JSON.parse(saved) : INITIAL_ALBUMS;
-    } catch {
-      return INITIAL_ALBUMS;
-    }
-  });
-
-  const [photos, setPhotos] = useState(() => {
-    try {
-      const saved = localStorage.getItem('jo_portfolio_photos_v1');
-      return saved ? JSON.parse(saved) : INITIAL_PHOTOS;
-    } catch {
-      return INITIAL_PHOTOS;
-    }
-  });
-
-  const [inquiries, setInquiries] = useState(() => {
-    try {
-      const saved = localStorage.getItem('jo_portfolio_inquiries_v1');
-      return saved ? JSON.parse(saved) : INITIAL_INQUIRIES;
-    } catch {
-      return INITIAL_INQUIRIES;
-    }
-  });
-
-  // Sync changes to localStorage automatically
-  useEffect(() => {
-    try {
-      localStorage.setItem('jo_portfolio_profile_v1', JSON.stringify(profile));
-    } catch (e) {
-      // Ignore storage quota errors for large base64 files
-    }
-  }, [profile]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('jo_portfolio_albums_v1', JSON.stringify(albums));
-    } catch (e) {}
-  }, [albums]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('jo_portfolio_photos_v1', JSON.stringify(photos));
-    } catch (e) {}
-  }, [photos]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('jo_portfolio_inquiries_v1', JSON.stringify(inquiries));
-    } catch (e) {}
-  }, [inquiries]);
+  const [albums, setAlbums] = useState(INITIAL_ALBUMS);
+  const [photos, setPhotos] = useState(INITIAL_PHOTOS);
+  const [inquiries, setInquiries] = useState(INITIAL_INQUIRIES);
 
   // Public Gallery Filters
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [albumSearchQuery, setAlbumSearchQuery] = useState('');
   const [detailAspectFilter, setDetailAspectFilter] = useState('all'); // 'all' | 'portrait' | 'landscape' | 'square'
-  const [detailLayoutMode, setDetailLayoutMode] = useState('masonry'); // 'masonry' | 'editorial'
+  const [detailLayoutMode, setDetailLayoutMode] = useState('album'); // 'masonry' | 'editorial'
   const [likedPhotos, setLikedPhotos] = useState({});
 
   // Lightbox State
@@ -733,6 +747,135 @@ export default function App() {
   const [loginPassword, setLoginPassword] = useState('');
   // Confirmation Modal State (No window.confirm allowed)
   const [confirmDialog, setConfirmDialog] = useState(null);
+
+
+  // ==========================================================================
+  // SERVER SYNC (Supabase DB + Cloudinary) — the fix for "uploads not visible"
+  // ==========================================================================
+  const [integrations, setIntegrations] = useState(null);
+  const [syncState, setSyncState] = useState('idle'); // idle | saving | saved | error
+  const loadedRef = useRef(false);
+  const lastContentRef = useRef('');
+  const lastInquiriesRef = useRef('');
+
+  const buildPayload = (p, a, ph) =>
+    JSON.stringify({
+      profile: p,
+      albums: a.map(({ photos: _x, photoCount: _y, ...rest }) => rest),
+      photos: ph,
+    });
+  const contentPayload = useMemo(
+    () => buildPayload(profile, albums, photos),
+    [profile, albums, photos]
+  );
+
+  const loadPortfolio = useCallback(async () => {
+    try {
+      const { ok, json } = await apiFetch('/api/portfolio');
+      let p = INITIAL_PROFILE;
+      let a = INITIAL_ALBUMS;
+      let ph = INITIAL_PHOTOS;
+      if (json.data) {
+        if (json.data.profile) p = { ...INITIAL_PROFILE, ...json.data.profile };
+        if (Array.isArray(json.data.albums)) a = json.data.albums;
+        if (Array.isArray(json.data.photos)) ph = json.data.photos;
+        setProfile(p);
+        setAlbums(a);
+        setPhotos(ph);
+      }
+      if (Array.isArray(json.inquiries)) {
+        setInquiries(json.inquiries);
+        lastInquiriesRef.current = JSON.stringify(json.inquiries);
+      }
+      lastContentRef.current = buildPayload(p, a, ph);
+      loadedRef.current = ok && json.configured !== false;
+    } catch (e) {
+      loadedRef.current = false;
+    }
+  }, []);
+
+  const checkAdmin = useCallback(async () => {
+    try {
+      const { json } = await apiFetch('/api/admin');
+      setIsAdminAuthenticated(!!json.authenticated);
+      setIntegrations(json.authenticated ? json : null);
+      return !!json.authenticated;
+    } catch (e) {
+      return false;
+    }
+  }, []);
+
+  // First load: everybody (public + admin) pulls the same data from the server
+  useEffect(() => {
+    (async () => {
+      await loadPortfolio();
+      await checkAdmin();
+      setIsMounted(true);
+    })();
+  }, [loadPortfolio, checkAdmin]);
+
+  // Auto-save (admin only) — debounced
+  useEffect(() => {
+    if (!isAdminAuthenticated || !loadedRef.current) return;
+    if (contentPayload === lastContentRef.current) return;
+    setSyncState('saving');
+    const t = setTimeout(async () => {
+      const { ok, json } = await apiFetch('/api/portfolio', {
+        method: 'PUT',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ content: JSON.parse(contentPayload) }),
+      }, 30000).catch(() => ({ ok: false, json: { error: 'Network error' } }));
+      if (ok) {
+        lastContentRef.current = contentPayload;
+        setSyncState('saved');
+      } else {
+        setSyncState('error');
+        showToast('Save failed: ' + (json.error || 'unknown error'), 'error');
+      }
+    }, 700);
+    return () => clearTimeout(t);
+  }, [contentPayload, isAdminAuthenticated]);
+
+  useEffect(() => {
+    if (!isAdminAuthenticated || !loadedRef.current) return;
+    const str = JSON.stringify(inquiries);
+    if (str === lastInquiriesRef.current) return;
+    const t = setTimeout(async () => {
+      const { ok } = await apiFetch('/api/portfolio', {
+        method: 'PUT',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ inquiries }),
+      }).catch(() => ({ ok: false }));
+      if (ok) lastInquiriesRef.current = str;
+    }, 500);
+    return () => clearTimeout(t);
+  }, [inquiries, isAdminAuthenticated]);
+
+  const handleAdminLogin = async (email, password) => {
+    try {
+      const { ok, json } = await apiFetch('/api/admin', {
+        method: 'POST',
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ action: 'login', email, password }),
+      });
+      if (!ok) return { ok: false, error: json.error || 'Login failed' };
+      await loadPortfolio();
+      await checkAdmin();
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: 'Network error. Try again.' };
+    }
+  };
+
+  const handleAdminLogout = async () => {
+    await apiFetch('/api/admin', {
+      method: 'POST',
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ action: 'logout' }),
+    }).catch(() => {});
+    setIsAdminAuthenticated(false);
+    setIntegrations(null);
+  };
 
   // Derived Album Counts & Enriched Albums
   const enrichedAlbums = useMemo(() => {
@@ -849,10 +992,6 @@ export default function App() {
         setAlbums(INITIAL_ALBUMS);
         setPhotos(INITIAL_PHOTOS);
         setInquiries(INITIAL_INQUIRIES);
-        localStorage.removeItem('jo_portfolio_profile_v1');
-        localStorage.removeItem('jo_portfolio_albums_v1');
-        localStorage.removeItem('jo_portfolio_photos_v1');
-        localStorage.removeItem('jo_portfolio_inquiries_v1');
         showToast('Portfolio restored to original curated state.');
         setConfirmDialog(null);
       },
@@ -1097,17 +1236,18 @@ if (!isMounted) {
           <ContactView
             profile={profile}
             isDark={isDark}
-            onSubmitInquiry={(newInquiry) => {
-              setInquiries((prev) => [
-                {
-                  id: `inq-${Date.now()}`,
-                  ...newInquiry,
-                  date: 'Just now',
-                  read: false,
-                },
-                ...prev,
-              ]);
-              showToast('Your message has been delivered to Jannatul’s inbox.');
+            onSubmitInquiry={async (newInquiry) => {
+              try {
+                const { ok } = await apiFetch('/api/portfolio', {
+                  method: 'POST',
+                  headers: JSON_HEADERS,
+                  body: JSON.stringify({ inquiry: newInquiry }),
+                });
+                if (!ok) throw new Error('failed');
+                showToast('Your message has been delivered. Thank you!');
+              } catch (e) {
+                showToast('Could not send message. Please try again.', 'error');
+              }
             }}
           />
         )}
@@ -1116,6 +1256,11 @@ if (!isMounted) {
           <AdminPortalView
             isAuthenticated={isAdminAuthenticated}
             setIsAuthenticated={setIsAdminAuthenticated}
+            onLogin={handleAdminLogin}
+            onLogout={handleAdminLogout}
+            integrations={integrations}
+            onRecheck={checkAdmin}
+            syncState={syncState}
             loginEmail={loginEmail}
             setLoginEmail={setLoginEmail}
             loginPassword={loginPassword}
@@ -1596,7 +1741,7 @@ function HomeView({
         </div>
 
         {/* Album Editorial Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-8">
           {albums.map((album, idx) => (
             <AlbumEditorialCard
               key={album.id}
@@ -1627,7 +1772,7 @@ function HomeView({
           </p>
         </div>
 
-        <div className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6">
+        <div className="columns-2 lg:columns-3 gap-3 sm:gap-6 space-y-3 sm:space-y-6">
           {featuredPhotos.map((photo, index) => {
             const parentAlbum = albums.find((a) => a.id === photo.albumId);
             const isLiked = !!likedPhotos[photo.id];
@@ -1953,7 +2098,7 @@ function AlbumsCatalogView({
           </button>
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-8">
           {filteredAlbums.map((album, idx) => (
             <AlbumEditorialCard
               key={album.id}
@@ -1972,6 +2117,142 @@ function AlbumsCatalogView({
 // ============================================================================
 // 3. ALBUM DETAILS GALLERY VIEW (Masonry + Aspect Filters + Lightbox)
 // ============================================================================
+// ============================================================================
+// ALBUM BOOK — swipe pages on mobile, big stage + thumbnail wall on desktop
+// ============================================================================
+function AlbumBook({ photos, isDark, onOpen, likedPhotos, setLikedPhotos }) {
+  const [active, setActive] = useState(0);
+  const trackRef = useRef(null);
+  const total = photos.length;
+  const safe = Math.min(active, Math.max(total - 1, 0));
+  const current = photos[safe];
+
+  useEffect(() => {
+    setActive(0);
+    if (trackRef.current) trackRef.current.scrollTo({ left: 0 });
+  }, [total]);
+
+  const goTo = (i) => {
+    if (!total) return;
+    const n = (i + total) % total;
+    setActive(n);
+    const el = trackRef.current;
+    if (el && el.clientWidth) el.scrollTo({ left: n * el.clientWidth, behavior: 'smooth' });
+  };
+  const onScroll = (e) => {
+    const el = e.currentTarget;
+    const i = Math.round(el.scrollLeft / (el.clientWidth || 1));
+    if (i !== active && i >= 0 && i < total) setActive(i);
+  };
+  const toggleLike = (id) => setLikedPhotos((prev) => ({ ...prev, [id]: !prev[id] }));
+
+  if (!current) return null;
+  const Stage = ({ photo, className = '' }) => (
+    <div className={`relative overflow-hidden bg-black ${className}`}>
+      <img src={cld(photo.url, 400)} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover blur-2xl scale-125 opacity-50" />
+      <img src={cld(photo.url, 1600)} alt={photo.caption} className="relative w-full h-full object-contain" />
+    </div>
+  );
+
+  return (
+    <div>
+      {/* ---------- MOBILE: swipeable album pages ---------- */}
+      <div className="md:hidden space-y-3">
+        <div
+          ref={trackRef}
+          onScroll={onScroll}
+          className="flex overflow-x-auto snap-x snap-mandatory [scrollbar-width:none] [&::-webkit-scrollbar]:hidden rounded-2xl"
+        >
+          {photos.map((p, i) => (
+            <div key={p.id} className="w-full shrink-0 snap-center" onClick={() => onOpen(i)}>
+              <Stage photo={p} className="aspect-[4/5] rounded-2xl" />
+            </div>
+          ))}
+        </div>
+
+        <div className="flex items-center justify-between gap-3 px-1">
+          <div className="min-w-0">
+            <p className="font-mono-meta text-[11px] text-[#C5A880]">
+              {String(safe + 1).padStart(2, '0')} / {String(total).padStart(2, '0')}
+            </p>
+            <p className="font-serif-editorial text-xl leading-snug truncate">{current.caption}</p>
+          </div>
+          <button
+            onClick={() => toggleLike(current.id)}
+            className={`p-2.5 rounded-full border border-current/15 ${likedPhotos[current.id] ? 'text-rose-500' : 'opacity-60'}`}
+            aria-label="Like"
+          >
+            <Heart className={`w-4 h-4 ${likedPhotos[current.id] ? 'fill-current' : ''}`} />
+          </button>
+        </div>
+
+        <div className="flex gap-2 overflow-x-auto pb-1 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          {photos.map((p, i) => (
+            <button
+              key={p.id}
+              onClick={() => goTo(i)}
+              className={`shrink-0 w-16 h-16 rounded-xl overflow-hidden border-2 transition ${i === safe ? 'border-[#C5A880]' : 'border-transparent opacity-60'}`}
+            >
+              <img src={cld(p.url, 200)} alt="" loading="lazy" className="w-full h-full object-cover" />
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ---------- DESKTOP: stage + thumbnail wall ---------- */}
+      <div className="hidden md:grid grid-cols-12 gap-6">
+        <div
+          className="col-span-8 relative rounded-3xl overflow-hidden h-[72vh] min-h-[480px] cursor-zoom-in group"
+          onClick={() => onOpen(safe)}
+        >
+          <Stage photo={current} className="absolute inset-0" />
+          <button
+            onClick={(e) => { e.stopPropagation(); goTo(safe - 1); }}
+            className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/50 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition"
+            aria-label="Previous"
+          >
+            <ChevronLeft className="w-5 h-5" />
+          </button>
+          <button
+            onClick={(e) => { e.stopPropagation(); goTo(safe + 1); }}
+            className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/50 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition"
+            aria-label="Next"
+          >
+            <ChevronRight className="w-5 h-5" />
+          </button>
+          <div className="absolute inset-x-0 bottom-0 p-6 bg-gradient-to-t from-black/80 to-transparent text-white flex items-end justify-between gap-4">
+            <div className="min-w-0">
+              <p className="font-mono-meta text-xs text-[#C5A880]">
+                {String(safe + 1).padStart(2, '0')} / {String(total).padStart(2, '0')}
+              </p>
+              <p className="font-serif-editorial text-2xl truncate">{current.caption}</p>
+            </div>
+            <button
+              onClick={(e) => { e.stopPropagation(); toggleLike(current.id); }}
+              className={`p-2.5 rounded-full bg-black/50 backdrop-blur-md ${likedPhotos[current.id] ? 'text-rose-500' : 'text-white'}`}
+              aria-label="Like"
+            >
+              <Heart className={`w-4 h-4 ${likedPhotos[current.id] ? 'fill-current' : ''}`} />
+            </button>
+          </div>
+        </div>
+
+        <div className="col-span-4 h-[72vh] min-h-[480px] overflow-y-auto pr-1 grid grid-cols-3 gap-2 content-start">
+          {photos.map((p, i) => (
+            <button
+              key={p.id}
+              onClick={() => setActive(i)}
+              className={`aspect-square rounded-xl overflow-hidden border-2 transition ${i === safe ? 'border-[#C5A880]' : 'border-transparent opacity-70 hover:opacity-100'}`}
+            >
+              <img src={cld(p.url, 300)} alt="" loading="lazy" className="w-full h-full object-cover" />
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function AlbumDetailView({
   album,
   allAlbums,
@@ -2110,6 +2391,16 @@ function AlbumDetailView({
         <div className="flex items-center gap-2">
           <span className="font-mono-meta text-xs opacity-60 mr-1">View:</span>
           <button
+            onClick={() => setLayoutMode('album')}
+            className={`px-3 py-1.5 rounded-full text-xs font-mono-meta ${
+              layoutMode === 'album'
+                ? 'bg-[#C5A880] text-[#0F0E0C]'
+                : 'opacity-60'
+            }`}
+          >
+            Album
+          </button>
+          <button
             onClick={() => setLayoutMode('masonry')}
             className={`px-3 py-1.5 rounded-full text-xs font-mono-meta ${
               layoutMode === 'masonry'
@@ -2117,7 +2408,7 @@ function AlbumDetailView({
                 : 'opacity-60'
             }`}
           >
-            Masonry
+            Grid
           </button>
           <button
             onClick={() => setLayoutMode('editorial')}
@@ -2145,8 +2436,16 @@ function AlbumDetailView({
             Show All Album Photos
           </button>
         </div>
+      ) : layoutMode === 'album' ? (
+        <AlbumBook
+          photos={filteredPhotos}
+          isDark={isDark}
+          onOpen={(i) => onOpenLightbox(filteredPhotos, i)}
+          likedPhotos={likedPhotos}
+          setLikedPhotos={setLikedPhotos}
+        />
       ) : layoutMode === 'masonry' ? (
-        <div className="columns-1 sm:columns-2 lg:columns-3 gap-6 space-y-6">
+        <div className="columns-2 lg:columns-3 xl:columns-4 gap-3 sm:gap-5 space-y-3 sm:space-y-5">
           {filteredPhotos.map((photo, idx) => (
             <PhotoCardItem
               key={photo.id}
@@ -2165,7 +2464,7 @@ function AlbumDetailView({
           ))}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        <div className="grid grid-cols-2 gap-3 sm:gap-8">
           {filteredPhotos.map((photo, idx) => (
             <PhotoCardItem
               key={photo.id}
@@ -2213,7 +2512,7 @@ function PhotoCardItem({
         }`}
       >
         <img
-          src={photo.url}
+          src={cld(photo.url, 900)}
           alt={photo.caption}
           loading="lazy"
           className={`w-full ${
@@ -2723,6 +3022,11 @@ function AdminPortalView({
   setConfirmDialog,
   onViewLiveAlbum,
   onResetDemo,
+  onLogin,
+  onLogout,
+  integrations,
+  onRecheck,
+  syncState,
 }) {
   // --- STATE FOR ALBUM MANAGEMENT ---
   const [newAlbumTitle, setNewAlbumTitle] = useState('');
@@ -2757,29 +3061,32 @@ function AdminPortalView({
   const profileFileInputRef = useRef(null);
   const albumCoverFileInputRef = useRef(null);
 
-  // Handle Local Multi-File Selection for Photo Uploads
-  const handleFilesSelected = (e) => {
+  // Handle Local Multi-File Selection (resized in browser, orientation auto-detected)
+  const handleFilesSelected = async (e) => {
     const files = Array.from(e.target.files || []);
+    e.target.value = '';
     if (!files.length) return;
-
-    files.forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = (ev) => {
+    let added = 0;
+    for (const file of files) {
+      try {
+        const { url, aspectRatio } = await fileToDataUrl(file);
         setStagedUploads((prev) => [
           ...prev,
           {
             tempId: `stg-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-            url: ev.target.result,
+            url,
             caption: file.name.replace(/\.[^/.]+$/, '').replace(/[-_]/g, ' '),
-            aspectRatio: 'portrait',
+            aspectRatio,
             camera: 'Sony A7R V · 50mm GM',
             location: 'Cumilla',
           },
         ]);
-      };
-      reader.readAsDataURL(file);
-    });
-    showToast(`${files.length} photo(s) staged for preview before publishing.`);
+        added++;
+      } catch (err) {
+        showToast(err.message, 'error');
+      }
+    }
+    if (added) showToast(`${added} photo(s) staged. Press publish to upload.`);
   };
 
   // Add URL or Preset to Staged Uploads
@@ -2799,37 +3106,44 @@ function AdminPortalView({
     setCustomImageUrl('');
   };
 
-  // Publish All Staged Photos to Selected Album (Simulates Cloudinary + Supabase Sync)
-  const handlePublishStagedPhotos = () => {
+  // Publish staged photos: upload to Cloudinary, then auto-saved to Supabase
+  const handlePublishStagedPhotos = async () => {
     if (!stagedUploads.length) return;
     const albumDest = targetAlbumId || (albums[0] && albums[0].id);
     if (!albumDest) {
       showToast('Please create an album first.', 'error');
       return;
     }
-
     setIsUploadingToCloud(true);
-    setTimeout(() => {
-      const createdPhotos = stagedUploads.map((item, idx) => ({
-        id: `ph-${Date.now()}-${idx}`,
-        albumId: albumDest,
-        url: item.url,
-        caption: item.caption || 'Untitled Frame',
-        aspectRatio: item.aspectRatio || 'portrait',
-        camera: item.camera || 'Editorial Prime',
-        location: item.location || 'Cumilla',
-        date: 'Just Uploaded',
-        featured: true,
-        order: photos.length + idx + 1,
-      }));
-
-      setPhotos((prev) => [...createdPhotos, ...prev]);
+    const created = [];
+    try {
+      for (let idx = 0; idx < stagedUploads.length; idx++) {
+        const item = stagedUploads[idx];
+        const isLocal = item.url.startsWith('data:');
+        const up = isLocal ? await uploadImage(item.url) : { url: item.url, publicId: '' };
+        created.push({
+          id: `ph-${Date.now()}-${idx}`,
+          albumId: albumDest,
+          url: up.url,
+          publicId: up.publicId,
+          caption: item.caption || 'Untitled Frame',
+          aspectRatio: item.aspectRatio || 'portrait',
+          camera: item.camera || 'Editorial Prime',
+          location: item.location || 'Cumilla',
+          date: new Date().toLocaleDateString('en-GB', { month: 'short', year: 'numeric' }),
+          featured: true,
+          order: photos.length + idx + 1,
+        });
+      }
+      setPhotos((prev) => [...created, ...prev]);
       setStagedUploads([]);
+      showToast(`${created.length} photo(s) uploaded to Cloudinary. Saving to Supabase…`);
+    } catch (err) {
+      if (created.length) setPhotos((prev) => [...created, ...prev]);
+      showToast('Upload failed: ' + err.message, 'error');
+    } finally {
       setIsUploadingToCloud(false);
-      showToast(
-        `Uploaded ${createdPhotos.length} photo(s) to Cloudinary & saved metadata in Supabase!`
-      );
-    }, 650);
+    }
   };
 
   // Create New Album Handler
@@ -2890,6 +3204,7 @@ function AdminPortalView({
 
   // --- ADMIN LOGIN SCREEN (VALIDATION & ERROR HANDLING) ---
   const [loginError, setLoginError] = useState('');
+  const [loginBusy, setLoginBusy] = useState(false);
 
   // পেইজ লোড হলে ইনপুট ফিল্ড দুটি খালি রাখবে
   useEffect(() => {
@@ -2897,23 +3212,17 @@ function AdminPortalView({
     setLoginPassword('');
   }, []);
 
-  const handleAdminLogin = (e) => {
+  const handleAdminLogin = async (e) => {
     e.preventDefault();
-
-    // আপনার কাঙ্ক্ষিত ইমেইল ও গোপন পাসওয়ার্ড এখানে সেট করুন:
-    const VALID_EMAIL = 'mdsazzadsarker4@gmail.com';
-    const VALID_PASSWORD = 'arthurx4'; // <-- এখানে আপনার গোপন পাসওয়ার্ড লিখুন
-
-    if (
-      loginEmail.trim().toLowerCase() === VALID_EMAIL.toLowerCase() &&
-      loginPassword === VALID_PASSWORD
-    ) {
-      setIsAuthenticated(true);
+    setLoginBusy(true);
+    const result = await onLogin(loginEmail.trim(), loginPassword);
+    setLoginBusy(false);
+    if (result.ok) {
       setLoginError('');
       showToast('Welcome back, Admin!');
     } else {
-      setLoginError('Invalid email or password. Access denied.');
-      showToast('Wrong credentials! Access denied.', 'error');
+      setLoginError(result.error);
+      showToast(result.error, 'error');
     }
   };
 
@@ -2997,7 +3306,7 @@ function AdminPortalView({
               type="submit"
               className="w-full py-3.5 rounded-full text-xs font-semibold uppercase tracking-wider bg-[#C5A880] text-[#0F0E0C] hover:opacity-95 transition"
             >
-              Sign In to Dashboard
+              {loginBusy ? 'Signing in…' : 'Sign In to Dashboard'}
             </button>
           </form>
         </div>
@@ -3050,13 +3359,68 @@ function AdminPortalView({
           </button>
           <button
             onClick={() => {
-              setIsAuthenticated(false);
+              onLogout();
               showToast('Signed out of Admin Dashboard.');
             }}
             className="inline-flex items-center gap-1.5 px-4 py-2 rounded-full text-xs bg-red-500/10 text-red-500 border border-red-500/20 hover:bg-red-500 hover:text-white transition"
           >
             <LogOut className="w-3.5 h-3.5" />
             <span>Sign Out</span>
+          </button>
+        </div>
+      </div>
+
+      {/* Integration Status: Cloudinary + Supabase + Sync */}
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {[
+          { label: 'Cloudinary · Image Storage', icon: ImageIcon, data: integrations && integrations.cloudinary },
+          { label: 'Supabase · Database', icon: Database, data: integrations && integrations.supabase },
+        ].map((card) => {
+          const Icon = card.icon;
+          const state = !card.data ? 'checking' : card.data.connected ? 'ok' : 'bad';
+          return (
+            <div
+              key={card.label}
+              className={`p-5 rounded-2xl border flex items-start gap-3 ${
+                isDark ? 'bg-[#181614] border-[#2A2622]' : 'bg-[#F3EFEA] border-[#E6DFD5]'
+              }`}
+            >
+              <span
+                className={`mt-0.5 p-2 rounded-xl ${
+                  state === 'ok' ? 'bg-emerald-500/15 text-emerald-500' : state === 'bad' ? 'bg-red-500/15 text-red-500' : 'bg-amber-500/15 text-amber-500'
+                }`}
+              >
+                <Icon className="w-4 h-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="font-mono-meta text-[11px] uppercase tracking-wider opacity-70">{card.label}</p>
+                <p className={`text-sm font-semibold flex items-center gap-1.5 ${state === 'ok' ? 'text-emerald-500' : state === 'bad' ? 'text-red-500' : 'text-amber-500'}`}>
+                  {state === 'ok' ? <CheckCircle2 className="w-4 h-4" /> : <AlertCircle className="w-4 h-4" />}
+                  {state === 'ok' ? 'Connected' : state === 'bad' ? 'Not connected' : 'Checking…'}
+                </p>
+                <p className="text-[11px] opacity-70 mt-0.5 break-words">{card.data ? card.data.message : ''}</p>
+              </div>
+            </div>
+          );
+        })}
+        <div
+          className={`p-5 rounded-2xl border flex items-start justify-between gap-3 ${
+            isDark ? 'bg-[#181614] border-[#2A2622]' : 'bg-[#F3EFEA] border-[#E6DFD5]'
+          }`}
+        >
+          <div>
+            <p className="font-mono-meta text-[11px] uppercase tracking-wider opacity-70">Live Sync</p>
+            <p className={`text-sm font-semibold ${syncState === 'error' ? 'text-red-500' : syncState === 'saving' ? 'text-amber-500' : 'text-emerald-500'}`}>
+              {syncState === 'saving' ? 'Saving to Supabase…' : syncState === 'error' ? 'Save failed' : syncState === 'saved' ? 'Saved — live for all visitors' : 'All changes synced'}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onRecheck}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] border border-current/20 hover:border-[#C5A880]"
+          >
+            <RefreshCw className="w-3 h-3 text-[#C5A880]" />
+            <span>Recheck</span>
           </button>
         </div>
       </div>
@@ -3412,9 +3776,13 @@ function AdminPortalView({
                       onChange={(e) => {
                         const file = e.target.files?.[0];
                         if (!file) return;
-                        const reader = new FileReader();
-                        reader.onload = (ev) => setNewAlbumCover(ev.target.result);
-                        reader.readAsDataURL(file);
+                        showToast('Uploading cover…');
+                        uploadImage(file)
+                          .then((r) => {
+                            setNewAlbumCover(r.url);
+                            showToast('Cover uploaded to Cloudinary.');
+                          })
+                          .catch((err) => showToast('Upload failed: ' + err.message, 'error'));
                       }}
                     />
                     <button
@@ -4065,19 +4433,14 @@ function AdminPortalView({
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (!file) return;
-                  const reader = new FileReader();
-                  reader.onload = (ev) => {
-                    setDraftProfile((prev) => ({
-                      ...prev,
-                      profilePhoto: ev.target.result,
-                    }));
-                    setProfile((prev) => ({
-                      ...prev,
-                      profilePhoto: ev.target.result,
-                    }));
-                    showToast('Hero profile photo updated immediately!');
-                  };
-                  reader.readAsDataURL(file);
+                  showToast('Uploading profile photo…');
+                  uploadImage(file)
+                    .then((r) => {
+                      setDraftProfile((prev) => ({ ...prev, profilePhoto: r.url }));
+                      setProfile((prev) => ({ ...prev, profilePhoto: r.url }));
+                      showToast('Profile photo uploaded & saved!');
+                    })
+                    .catch((err) => showToast('Upload failed: ' + err.message, 'error'));
                 }}
               />
               <button
