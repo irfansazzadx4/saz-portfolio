@@ -187,9 +187,9 @@ const INITIAL_PROFILE = {
   aboutStory:
     'Photography, for me, has never been merely about documentation—it is about preserving the atmosphere of a moment before it dissolves. From the warm amber glow of late monsoon afternoons in Cumilla to serene solitude by the hills and timeless traditional drapery, this portfolio is a living anthology of my personal portraits and visual memoirs.',
   aboutPhilosophy:
-    'I believe in unhurried frames, natural sunlight, and honest expression. Whether draped in heritage jamdani silk or wandering through mist-covered tea gardens, each album is curated to feel like turning the pages of an intimate cinema reel.',
+    'Some moments are best captured in silence. Between the warmth of golden sunlight and the beauty of untouched nature, every frame tells a story of its own. No perfect pose, no forced expression — just a quiet moment, a little nostalgia, and the art of being yourself..',
   profilePhoto:
-    'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1200&q=85',
+    'https://res.cloudinary.com/jjvjlsgt/image/upload/v1793861555/portfolio/cf3brqrk9hv64gorp4wy.jpg?auto=format&fit=crop&w=1200&q=85',
   secondaryPortrait:
     'https://res.cloudinary.com/jjvjlsgt/image/upload/v1793861555/portfolio/cf3brqrk9hv64gorp4wy.jpg?auto=format&fit=crop&w=1000&q=85',
   email: 'mdsazzadsarker4@gmail.com',
