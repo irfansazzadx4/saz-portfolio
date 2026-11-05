@@ -504,7 +504,7 @@ const PRESET_CURATED_PHOTOS = [
   },
   {
     label: 'Autumn Cafe Reverie',
-    url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=1200&q=85',
+    url: 'https://res.cloudinary.com/jjvjlsgt/image/upload/v1793861555/portfolio/cf3brqrk9hv64gorp4wy.jpg?auto=format&fit=crop&w=1200&q=85',
     aspect: 'portrait',
   },
   {
