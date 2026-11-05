@@ -33,12 +33,19 @@ export async function GET(req: NextRequest) {
     connected: false,
     message: 'Env missing: NEXT_PUBLIC_SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY',
   };
-  const sb = getSupabase();
+    const sb = getSupabase();
   if (sb) {
-    const { error } = await sb.from(TABLE).select('id').limit(1);
-    if (!error) sup = { connected: true, message: 'Database table ready' };
+    const { error } = await sb
+      .from(TABLE)
+      .upsert({ id: 0, data: { ping: Date.now() } });
+    if (!error) sup = { connected: true, message: 'Read & write OK' };
+    else if (/row-level security|permission denied/i.test(error.message))
+      sup = {
+        connected: false,
+        message: 'Write blocked: this is not the service_role key (anon key?)',
+      };
     else if (/portfolio_state|schema cache|does not exist/i.test(error.message))
-      sup = { connected: false, message: 'Connected, but table missing — run supabase.sql' };
+      sup = { connected: false, message: 'Table missing — run supabase.sql' };
     else sup = { connected: false, message: error.message };
   }
 
