@@ -241,7 +241,7 @@ const INITIAL_ALBUMS = [
     description:
       'Rain-streaked glass, warm espresso, handwritten notes, and candid moments captured across quiet afternoons in the city.',
     coverUrl:
-      'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=1200&q=85',
+      'https://res.cloudinary.com/jjvjlsgt/image/upload/v1793861555/portfolio/cf3brqrk9hv64gorp4wy.jpg?auto=format&fit=crop&w=1200&q=85',
     featured: true,
     createdAt: '2024-08-19',
   },
