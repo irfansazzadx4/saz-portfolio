@@ -6,6 +6,14 @@ export const dynamic = 'force-dynamic';
 
 type Status = { connected: boolean; message: string };
 
+function cloudinaryErrorMessage(error: unknown) {
+  if (typeof error !== 'object' || error === null) return 'Cloudinary rejected the keys';
+  if ('error' in error && typeof error.error === 'object' && error.error !== null && 'message' in error.error)
+    return String(error.error.message);
+  if ('message' in error) return String(error.message);
+  return 'Cloudinary rejected the keys';
+}
+
 // Session check + LIVE connection status for Cloudinary & Supabase (admin only)
 export async function GET(req: NextRequest) {
   if (!isAdmin(req)) return NextResponse.json({ authenticated: false });
@@ -24,8 +32,8 @@ export async function GET(req: NextRequest) {
       });
       await cloudinary.api.ping();
       cld = { connected: true, message: `Cloud: ${cloudName}` };
-    } catch (e: any) {
-      cld = { connected: false, message: e?.error?.message || e?.message || 'Cloudinary rejected the keys' };
+    } catch (error: unknown) {
+      cld = { connected: false, message: cloudinaryErrorMessage(error) };
     }
   }
 

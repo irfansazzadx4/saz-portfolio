@@ -1,4 +1,3 @@
-// @ts-nocheck
 "use client";
 
 import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
@@ -72,13 +71,37 @@ const Facebook = ({ className = "w-4 h-4" }: { className?: string }) => (
 // ============================================================================
 // CLOUD HELPERS (Cloudinary upload + API calls)
 // ============================================================================
-async function apiFetch(url, options = {}, timeoutMs = 12000) {
+type ApiErrorResponse = { error?: string };
+type CloudinarySignResponse = {
+  error?: string;
+  cloudName: string;
+  apiKey: string;
+  timestamp: number;
+  signature: string;
+  folder: string;
+};
+type PortfolioResponse = {
+  data?: {
+    profile?: Partial<typeof INITIAL_PROFILE>;
+    albums?: typeof INITIAL_ALBUMS;
+    photos?: typeof INITIAL_PHOTOS;
+  } | null;
+  inquiries?: typeof INITIAL_INQUIRIES;
+  configured?: boolean;
+};
+type AdminStatusResponse = {
+  authenticated?: boolean;
+  cloudinary?: { connected: boolean; message: string };
+  supabase?: { connected: boolean; message: string };
+};
+
+async function apiFetch<T>(url: string, options: RequestInit = {}, timeoutMs = 12000) {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const res = await fetch(url, { cache: 'no-store', ...options, signal: controller.signal });
-    let json = {};
-    try { json = await res.json(); } catch (e) {}
+    let json = {} as T;
+    try { json = (await res.json()) as T; } catch {}
     return { ok: res.ok, status: res.status, json };
   } finally {
     clearTimeout(timer);
@@ -88,8 +111,8 @@ async function apiFetch(url, options = {}, timeoutMs = 12000) {
 const JSON_HEADERS = { 'Content-Type': 'application/json' };
 
 // Signed direct upload to Cloudinary (file: File | data-URL string) -> permanent https URL
-async function uploadImage(source, folder = 'portfolio') {
-  const sign = await apiFetch('/api/cloudinary/sign', {
+async function uploadImage(source: File | string, folder = 'portfolio') {
+  const sign = await apiFetch<CloudinarySignResponse>('/api/cloudinary/sign', {
     method: 'POST',
     headers: JSON_HEADERS,
     body: JSON.stringify({ folder }),
@@ -112,14 +135,14 @@ async function uploadImage(source, folder = 'portfolio') {
 }
 
 // Smaller/faster delivery for Cloudinary images (auto format + quality + width)
-function cld(url, w = 1200) {
+function cld(url: string, w = 1200) {
   if (typeof url !== 'string' || !url.includes('res.cloudinary.com') || !url.includes('/upload/')) return url;
   if (/\/upload\/(f_|q_|w_|c_)/.test(url)) return url;
   return url.replace('/upload/', `/upload/f_auto,q_auto,w_${w}/`);
 }
 
 // Phone photo -> resized JPEG data-URL (max 2400px) + detected orientation
-function fileToDataUrl(file, maxSide = 2400) {
+function fileToDataUrl(file: File, maxSide = 2400): Promise<{ url: string; aspectRatio: string }> {
   return new Promise((resolve, reject) => {
     const objUrl = URL.createObjectURL(file);
     const img = new window.Image();
@@ -691,18 +714,13 @@ ADMIN_EMAIL="mdsazzadsarker4@gmail.com"`;
 
 export default function App() {
   const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    // Secret URL /arthur detect kore admin mode e niye jabe
-    if (typeof window !== 'undefined' && window.location.pathname === '/arthur') {
-      setActivePage('admin');
-    }
-  }, []);
   // Theme State ('light' = Warm Alabaster Editorial, 'dark' = Obsidian Velvet)
   const [theme, setTheme] = useState('light');
 
   // Navigation State: 'home' | 'albums' | 'album-detail' | 'about' | 'contact' | 'admin'
-  const [activePage, setActivePage] = useState('home');
+  const [activePage, setActivePage] = useState(() =>
+    typeof window !== 'undefined' && window.location.pathname === '/arthur' ? 'admin' : 'home'
+  );
   const [selectedAlbumId, setSelectedAlbumId] = useState(INITIAL_ALBUMS[0].id);
 
   // Dynamic Database State (saved in Supabase, shared by all visitors)
@@ -771,7 +789,7 @@ export default function App() {
 
   const loadPortfolio = useCallback(async () => {
     try {
-      const { ok, json } = await apiFetch('/api/portfolio');
+      const { ok, json } = await apiFetch<PortfolioResponse>('/api/upload/portfolio');
       let p = INITIAL_PROFILE;
       let a = INITIAL_ALBUMS;
       let ph = INITIAL_PHOTOS;
@@ -796,7 +814,7 @@ export default function App() {
 
   const checkAdmin = useCallback(async () => {
     try {
-      const { json } = await apiFetch('/api/admin');
+      const { json } = await apiFetch<AdminStatusResponse>('/api/admin');
       setIsAdminAuthenticated(!!json.authenticated);
       setIntegrations(json.authenticated ? json : null);
       return !!json.authenticated;
@@ -820,11 +838,11 @@ export default function App() {
     if (contentPayload === lastContentRef.current) return;
     setSyncState('saving');
     const t = setTimeout(async () => {
-      const { ok, json } = await apiFetch('/api/portfolio', {
+      const { ok, json } = await apiFetch<ApiErrorResponse>('/api/upload/portfolio', {
         method: 'PUT',
         headers: JSON_HEADERS,
         body: JSON.stringify({ content: JSON.parse(contentPayload) }),
-      }, 30000).catch(() => ({ ok: false, json: { error: 'Network error' } }));
+      }, 30000).catch(() => ({ ok: false, status: 0, json: { error: 'Network error' } }));
       if (ok) {
         lastContentRef.current = contentPayload;
         setSyncState('saved');
@@ -841,7 +859,7 @@ export default function App() {
     const str = JSON.stringify(inquiries);
     if (str === lastInquiriesRef.current) return;
     const t = setTimeout(async () => {
-      const { ok } = await apiFetch('/api/portfolio', {
+      const { ok } = await apiFetch('/api/upload/portfolio', {
         method: 'PUT',
         headers: JSON_HEADERS,
         body: JSON.stringify({ inquiries }),
@@ -853,7 +871,7 @@ export default function App() {
 
   const handleAdminLogin = async (email, password) => {
     try {
-      const { ok, json } = await apiFetch('/api/admin', {
+      const { ok, json } = await apiFetch<ApiErrorResponse>('/api/admin', {
         method: 'POST',
         headers: JSON_HEADERS,
         body: JSON.stringify({ action: 'login', email, password }),
@@ -1238,7 +1256,7 @@ if (!isMounted) {
             isDark={isDark}
             onSubmitInquiry={async (newInquiry) => {
               try {
-                const { ok } = await apiFetch('/api/portfolio', {
+                const { ok } = await apiFetch('/api/upload/portfolio', {
                   method: 'POST',
                   headers: JSON_HEADERS,
                   body: JSON.stringify({ inquiry: newInquiry }),
@@ -2120,17 +2138,21 @@ function AlbumsCatalogView({
 // ============================================================================
 // ALBUM BOOK — swipe pages on mobile, big stage + thumbnail wall on desktop
 // ============================================================================
+function AlbumBookStage({ photo, className = '' }) {
+  return (
+    <div className={`relative overflow-hidden bg-black ${className}`}>
+      <img src={cld(photo.url, 400)} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover blur-2xl scale-125 opacity-50" />
+      <img src={cld(photo.url, 1600)} alt={photo.caption} className="relative w-full h-full object-contain" />
+    </div>
+  );
+}
+
 function AlbumBook({ photos, isDark, onOpen, likedPhotos, setLikedPhotos }) {
   const [active, setActive] = useState(0);
   const trackRef = useRef(null);
   const total = photos.length;
   const safe = Math.min(active, Math.max(total - 1, 0));
   const current = photos[safe];
-
-  useEffect(() => {
-    setActive(0);
-    if (trackRef.current) trackRef.current.scrollTo({ left: 0 });
-  }, [total]);
 
   const goTo = (i) => {
     if (!total) return;
@@ -2147,12 +2169,6 @@ function AlbumBook({ photos, isDark, onOpen, likedPhotos, setLikedPhotos }) {
   const toggleLike = (id) => setLikedPhotos((prev) => ({ ...prev, [id]: !prev[id] }));
 
   if (!current) return null;
-  const Stage = ({ photo, className = '' }) => (
-    <div className={`relative overflow-hidden bg-black ${className}`}>
-      <img src={cld(photo.url, 400)} alt="" aria-hidden="true" className="absolute inset-0 w-full h-full object-cover blur-2xl scale-125 opacity-50" />
-      <img src={cld(photo.url, 1600)} alt={photo.caption} className="relative w-full h-full object-contain" />
-    </div>
-  );
 
   return (
     <div>
@@ -2165,7 +2181,7 @@ function AlbumBook({ photos, isDark, onOpen, likedPhotos, setLikedPhotos }) {
         >
           {photos.map((p, i) => (
             <div key={p.id} className="w-full shrink-0 snap-center" onClick={() => onOpen(i)}>
-              <Stage photo={p} className="aspect-[4/5] rounded-2xl" />
+              <AlbumBookStage photo={p} className="aspect-[4/5] rounded-2xl" />
             </div>
           ))}
         </div>
@@ -2205,7 +2221,7 @@ function AlbumBook({ photos, isDark, onOpen, likedPhotos, setLikedPhotos }) {
           className="col-span-8 relative rounded-3xl overflow-hidden h-[72vh] min-h-[480px] cursor-zoom-in group"
           onClick={() => onOpen(safe)}
         >
-          <Stage photo={current} className="absolute inset-0" />
+          <AlbumBookStage photo={current} className="absolute inset-0" />
           <button
             onClick={(e) => { e.stopPropagation(); goTo(safe - 1); }}
             className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full bg-black/50 text-white backdrop-blur-md opacity-0 group-hover:opacity-100 transition"
@@ -2438,6 +2454,7 @@ function AlbumDetailView({
         </div>
       ) : layoutMode === 'album' ? (
         <AlbumBook
+          key={filteredPhotos.map((photo) => photo.id).join('|')}
           photos={filteredPhotos}
           isDark={isDark}
           onOpen={(i) => onOpenLightbox(filteredPhotos, i)}
@@ -3052,17 +3069,19 @@ function AdminPortalView({
   const [replacePhotoUrl, setReplacePhotoUrl] = useState('');
 
   // --- STATE FOR PROFILE MANAGEMENT ---
+  const [previousProfile, setPreviousProfile] = useState(profile);
   const [draftProfile, setDraftProfile] = useState(profile);
-  useEffect(() => {
+  if (profile !== previousProfile) {
+    setPreviousProfile(profile);
     setDraftProfile(profile);
-  }, [profile]);
+  }
 
   const fileInputRef = useRef(null);
   const profileFileInputRef = useRef(null);
   const albumCoverFileInputRef = useRef(null);
 
   // Handle Local Multi-File Selection (resized in browser, orientation auto-detected)
-  const handleFilesSelected = async (e) => {
+  const handleFilesSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
     e.target.value = '';
     if (!files.length) return;

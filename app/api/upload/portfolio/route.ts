@@ -14,6 +14,13 @@ async function readRow(sb: SB, id: number) {
 const writeRow = (sb: SB, id: number, data: unknown) =>
   sb.from(TABLE).upsert({ id, data, updated_at: new Date().toISOString() });
 
+function errorMessage(error: unknown) {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'object' && error !== null && 'message' in error)
+    return String(error.message);
+  return String(error);
+}
+
 // PUBLIC: every visitor on every device reads the same saved portfolio
 export async function GET(req: NextRequest) {
   const sb = getSupabase();
@@ -23,8 +30,8 @@ export async function GET(req: NextRequest) {
     const body: Record<string, unknown> = { data, configured: true };
     if (isAdmin(req)) body.inquiries = (await readRow(sb, 2)) ?? [];
     return NextResponse.json(body, { headers: { 'Cache-Control': 'no-store' } });
-  } catch (e: any) {
-    return NextResponse.json({ data: null, configured: false, error: e.message });
+  } catch (error: unknown) {
+    return NextResponse.json({ data: null, configured: false, error: errorMessage(error) });
   }
 }
 
@@ -67,7 +74,7 @@ export async function POST(req: NextRequest) {
     const { error } = await writeRow(sb, 2, [item, ...list].slice(0, 200));
     if (error) throw error;
     return NextResponse.json({ ok: true });
-  } catch (e: any) {
-    return NextResponse.json({ error: e.message }, { status: 500 });
+  } catch (error: unknown) {
+    return NextResponse.json({ error: errorMessage(error) }, { status: 500 });
   }
 }
