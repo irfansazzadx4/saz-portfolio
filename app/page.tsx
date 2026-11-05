@@ -191,7 +191,7 @@ const INITIAL_PROFILE = {
   profilePhoto:
     'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=1200&q=85',
   secondaryPortrait:
-    'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=1000&q=85',
+    'https://res.cloudinary.com/jjvjlsgt/image/upload/v1793861555/portfolio/cf3brqrk9hv64gorp4wy.jpg?auto=format&fit=crop&w=1000&q=85',
   email: 'mdsazzadsarker4@gmail.com',
   phone: '+880 1327-291114',
   availability: 'Open for Editorial Collaborations & Creative Features',
