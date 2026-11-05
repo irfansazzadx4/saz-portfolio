@@ -392,7 +392,7 @@ const INITIAL_PHOTOS = [
   {
     id: 'ph-301',
     albumId: 'alb-monsoon-letters',
-    url: 'https://images.unsplash.com/photo-1524504388940-b1c1722653e1?auto=format&fit=crop&w=1200&q=85',
+    url: 'https://res.cloudinary.com/jjvjlsgt/image/upload/v1793861555/portfolio/cf3brqrk9hv64gorp4wy.jpg?auto=format&fit=crop&w=1200&q=85',
     caption: 'Corner table by the rain-washed window.',
     aspectRatio: 'portrait',
     camera: 'Fujifilm GFX 100 II · 55mm f/1.7',
